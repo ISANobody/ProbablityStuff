@@ -4,10 +4,8 @@
 module MathHammer where
   import Numeric.Probability.Distribution hiding (map,filter)
   import qualified Numeric.Probability.Distribution as D
-  import Data.List
   import qualified Data.MultiSet as MS
   import Data.MultiSet (MultiSet)
-  import Control.Arrow
   import Data.Ratio
   import qualified Data.Map as Map
   import Data.Map (Map)
@@ -32,33 +30,36 @@ module MathHammer where
                           xs <- fixedSumCombos (i-x) (l-1)
                           return (x:xs)
 
-  msReplicate :: (Ord a) => Int -> a -> MultiSet a
-  msReplicate i a = MS.fromList $ replicate i a
+  -- Create a 'singleton' MultiSet containing a single element with a
+  -- specified number of repetitions
+  msPolyton :: (Ord a) => MS.Occur -> a -> MultiSet a
+  msPolyton i a = MS.insertMany a i $ MS.empty
   
   msFoldOccurM :: (Ord a, Monad m) => (a -> MS.Occur -> b -> m b) -> b -> MultiSet a -> m b
   msFoldOccurM f z ms = foldrM (uncurry f) z (MS.toOccurList ms)
 
-  msFoldM :: (Ord a, Monad m) => (a -> b -> m b) -> b -> MultiSet a -> m b
-  msFoldM f z ms = foldrM f z (MS.toList ms)
-
-
-  
-  mapMMap :: (Ord k, Monad m) => (k -> a -> m b) -> Map k a -> m (Map k b)
-  mapMMap f m = go (Map.toList m)
-      where go [] = return Map.empty
-            go ((k,v):kvs) = do ma <- go kvs
-                                v' <- f k v
-                                return (Map.insert k v' ma)
-
-
   -- Repeated independent trials can be handled specially
-  independent :: forall a. (Ord a) => Int -> T Frac a -> T Frac (MultiSet a)
-  independent i d = fromFreqs . map go $ resultCounts
-       where resultCounts = fixedSumCombos i (length . extract $ d)
-             ds = decons d
-             go :: [Int] -> (MultiSet a, Frac)
-             go os = (MS.unions $ zipWith (\(e,_) o -> msReplicate o e) ds os,
-                      (fromIntegral $ multinom os)*(product $ zipWith (\(_,ep) o -> power ep o) ds os))
+  -- An individual outcome [x1,x2,...,xn] will occur with
+  -- probability the multinomial times each of the 
+  -- individual probabilities (i.e., pk^xk)
+  -- In the most general form we leave the mapping from
+  -- result vector to event parametric
+  independentGen :: forall prob a b . Fractional prob => ([(a,Int)] -> b)
+                 -> Int -> T prob a -> T prob b
+  independentGen f i d = fromFreqs . fmap go  $ fixedSumCombos i (size d)
+     where probs = map snd . decons $ d
+           go :: [Int] -> (b,prob)
+           go ns = (f $ zip (extract d) ns
+                   ,(fromIntegral $ multinom ns)*(product $ zipWith power probs ns))
+
+  -- Takes a replication function and a combining function
+  independentRepFold :: Fractional prob => (b -> b -> b) -> (Int -> a -> b)
+                     -> Int -> T prob a -> T prob b
+  independentRepFold c r = independentGen (foldr1 c . map (\(e,o) -> r o e))
+
+  independent :: (Fractional prob, Ord a) 
+              => Int -> T prob a -> T prob (MultiSet a)
+  independent = independentRepFold MS.union msPolyton
 
   -- Remove Nothing from a Multiset Maybe a, then rm the wrapper
   stripMaybe :: (Ord a) => MultiSet (Maybe a) -> MultiSet a
@@ -128,7 +129,7 @@ module MathHammer where
                        | Ordinance 
                        | Multi [ShootingProfile] deriving (Show, Eq, Ord)
 
-  data AV = AV10 | AV11 | AV12 | AV13 | AV14 deriving (Eq, Show, Ord)
+  data AV = AV10 | AV11 | AV12 | AV13 | AV14 deriving (Eq, Show, Ord, Enum)
   data CrewStatus = CrewFine | CrewShaken | CrewStunned
        deriving (Show, Eq, Ord)
   data VehicleDamage = VehicleDamage { crew :: CrewStatus, 
@@ -149,7 +150,7 @@ module MathHammer where
   killed _ = False
   
   -- Note BS6+ needs to be handled specially
-  data Strength = STR1 | STR2 | STR3 | STR4 | STR5 | STR6 | STR7 | STR8 | STR9 | STR10 
+  data Strength = STR0 | STR1 | STR2 | STR3 | STR4 | STR5 | STR6 | STR7 | STR8 | STR9 | STR10 
        deriving (Eq, Show, Ord, Enum)
 
   data Toughness = T0 | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 | T10
@@ -180,23 +181,73 @@ module MathHammer where
   roll :: (Fractional prob) => Roll -> T prob Bool
   roll r = D.map (\ x -> x >= fromEnum r) d6
 
-  tervigon1 :: T Frac (Int,Bool)
-  tervigon1 = norm $ do rs <- independent 3 d6
-                        return (MS.fold (+) 0 rs, MS.distinctSize rs == 3)
+  -- I hate twinlinked.
+  -- Take a twinlinked flag
+  bs2prob :: (Fractional prob) => BS -> Bool -> T prob Bool
+  bs2prob bs tl = norm $ do r <- d6
+                            if r >= (7 - fromEnum bs)
+                            then return True
+                            else if tl
+                                 then bs2prob bs False
+                                 else return False
 
-  tervigon :: Int -> T Frac Int
-  tervigon 0 = uniform [0]
-  tervigon n = do (s,b) <- tervigon1
-                  if b
-                      then do r <- norm $ tervigon (n-1)
-                              return (r+s)
-                      else return s
+  -- Takes a BS, number of shots, and Twin-linked Flag. Returns the number of hits
+  numhits :: (Fractional prob) => BS -> Int -> Bool -> T prob Int
+  numhits b n tl = norm $ D.map (MS.occur True) $ norm $ independent n (bs2prob b tl)
 
-  -- #rolls -> DC -> stuff
-  wod :: Int -> Int -> T Frac Int
-  wod n dc = do x <- independent n (norm $ fmap go $ uniform [1..10])
-                return $ max 0 (sum $ MS.toList x)
-     where go 1 = -1
-           go n = if n >= dc
-                     then 1
-                     else 0
+  data PenResult = Failure | Glance | Pen deriving (Show, Eq, Ord, Enum)
+
+  hit2pen :: (Fractional prob) => Strength -> AV -> T prob PenResult
+  hit2pen s a = norm $ do r <- d6
+                          return (case () of _ | r + str > av  -> Pen
+                                               | r + str == av -> Glance
+                                               | otherwise     -> Failure)
+    where str = fromEnum s
+          av  = 10 + fromEnum a
+
+  pendmg :: (Fractional prob) => T prob Int
+  pendmg = norm $ uniform [1,1,1,1,2,3]
+
+  quadshooting :: (Fractional prob) => BS -> T prob Bool
+  quadshooting bs = do h <- numhits bs 4 True
+                       r <- independent h (norm $ hit2pen STR7 AV10)
+                       d <- independent (MS.occur Pen r) pendmg
+                       return $ MS.occur Glance r + msSum d >= 3
+
+  crimsonHit :: (Fractional prob) => AV -> T prob PenResult
+  crimsonHit av = norm $ do r <- d6
+                            case () of 
+                             _ | r+8 == 10 + fromEnum av -> return Glance
+                               | r+8 > 10 + fromEnum av  -> return Pen
+                               | otherwise -> hit2pen STR8 av
+
+  ap2VSFlyerDmg :: (Fractional prob) => Int -> T prob Int
+  ap2VSFlyerDmg hp = norm $ uniform [1,1,1,2,hp,hp]
+
+  crimsonVSturkey :: (Ord prob, Fractional prob) => T prob Bool
+  crimsonVSturkey = do h <- numhits BS5 4 False
+                       h'<- fmap (MS.occur True) $ independent h (fmap (<5) d6)
+                       r <- independent h' (crimsonHit AV12)
+                       d <- independent (MS.occur Pen r) (ap2VSFlyerDmg 3)
+                       return $ MS.occur Glance r + msSum d >= 3
+
+  vendettaVSturkey :: (Fractional prob) => T prob Bool
+  vendettaVSturkey = do h <- numhits BS3 3 True
+                        h'<- fmap (MS.occur True) $ independent h (fmap (<5) d6)
+                        r <- independent h' (hit2pen STR9 AV12)
+                        d <- independent (MS.occur Pen r) (ap2VSFlyerDmg 3)
+                        return $ MS.occur Glance r + msSum d >= 3
+
+  quadgunVSturkey :: (Fractional prob) => T prob Bool
+  quadgunVSturkey = do h <- numhits BS4 4 True
+                       h'<- fmap (MS.occur True) $ independent h (fmap (<5) d6)
+                       r <- independent h' (hit2pen STR7 AV12)
+                       d <- independent (MS.occur Pen r) pendmg
+                       return $ MS.occur Glance r + msSum d >= 3
+
+  lootasVSturkey :: (Fractional prob) => T prob Bool
+  lootasVSturkey = do h <- norm $ numhits BS1 20 False
+                      h'<- fmap (MS.occur True) $ norm $ independent h (fmap (<5) d6)
+                      r <- independent h' (hit2pen STR7 AV12)
+                      d <- independent (MS.occur Pen r) pendmg
+                      return $ MS.occur Glance r + msSum d >= 3

@@ -7,6 +7,7 @@ module EdgeOfEmpire where
   import qualified Data.MultiSet as MS
   import Data.MultiSet (MultiSet)
   import Data.Ratio
+  import Data.List
 
   -- Fixes some type class generality
   myExpected :: (Fractional p, Integral n) => T p n -> p
@@ -17,10 +18,10 @@ module EdgeOfEmpire where
   type Result = (Int,Int)
 
   blueRoll, greenRoll, yellowRoll, purpleRoll :: Fractional prob => T prob Result
-  blueRoll = uniform [(0,0),(0,0),(1,0),(1,1),(0,2),(0,1)]
-  greenRoll = uniform [(0,0),(1,0),(1,0),(2,0),(0,1),(0,1),(1,1),(0,2)]
-  yellowRoll = uniform [(0,0),(1,0),(1,0),(2,0),(2,0),(0,1),(1,1),(1,1),(1,1),(0,2),(0,2),(1,0)]
-  purpleRoll = uniform [(0,0),(-1,0),(-2,0),(0,-1),(0,-1),(0,-1),(0,-2),(-1,-1)]
+  blueRoll = norm $ uniform [(0,0),(0,0),(1,0),(1,1),(0,2),(0,1)]
+  greenRoll = norm $ uniform [(0,0),(1,0),(1,0),(2,0),(0,1),(0,1),(1,1),(0,2)]
+  yellowRoll = norm $ uniform [(0,0),(1,0),(1,0),(2,0),(2,0),(0,1),(1,1),(1,1),(1,1),(0,2),(0,2),(1,0)]
+  purpleRoll = norm $ uniform [(0,0),(-1,0),(-2,0),(0,-1),(0,-1),(0,-1),(0,-2),(-1,-1)]
   
   pairPlus :: (Num n) => (n,n) -> (n,n) -> (n,n)
   pairPlus (x1,x2) (y1,y2) = (x1+y1,x2+y2)
@@ -29,11 +30,20 @@ module EdgeOfEmpire where
  
   roll :: Fractional prob => Int -> Int -> Int -> Int -> T prob Result
   roll g y u p = do
-      gs <- norm $ independent g greenRoll
-      ys <- norm $ independent y yellowRoll
-      ps <- norm $ independent p purpleRoll
-      bs <- norm $ independent u blueRoll
-      return $ foldr pairPlus (0,0) (map pairMSSum [gs,ys,ps,bs])
+      gs <- norm $ independentRepFold pairPlus go g greenRoll
+      ys <- norm $ independentRepFold pairPlus go y yellowRoll
+      ps <- norm $ independentRepFold pairPlus go p purpleRoll
+      bs <- norm $ independentRepFold pairPlus go u blueRoll
+      return $ foldr pairPlus (0,0) [gs,ys,ps,bs]
+    where go n (x,y) = (n*x,n*y)
+
+  rollSucc :: Fractional prob => Int -> Int -> Int -> Int -> T prob Int
+  rollSucc g y u p = do
+      gs <- norm $ independentRepFold (+) (\n (x,_) -> n*x) g greenRoll
+      ys <- norm $ independentRepFold (+) (\n (x,_) -> n*x) y yellowRoll
+      ps <- norm $ independentRepFold (+) (\n (x,_) -> n*x) p purpleRoll
+      bs <- norm $ independentRepFold (+) (\n (x,_) -> n*x) u blueRoll
+      return $ sum [gs,ys,ps,bs]
 
 
   blasterRifleDmg g y u p = do
@@ -52,4 +62,10 @@ module EdgeOfEmpire where
        (s,a) <- roll g y u (p+1)
        return $ if s > 0
                 then (s + 10) * (1+ floor ((max a 0) % 2))
+                else 0
+
+  heavyBlAutoJRDmg g y u p = do
+       (s,a) <- roll g y u (p+1)
+       return $ if s > 0
+                then (s + 10) * (1+ (max a 0))
                 else 0
