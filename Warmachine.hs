@@ -46,7 +46,7 @@ module Warmachine where
   -- This is ugly. I don't know why memoization didn't work on the cleaner version
   memoed :: (Fractional p, Ord p) => Int -> Int -> Int -> (Action,p)
   memoed d a = 
-    let f = traceMemoize $ \r -> case r of
+    let f = memoize      $ \r -> case r of
                                  0 -> (None,myExpected $ basicAtk d a)
                                  1 -> maximumWRT snd [(None,(myExpected $ basicAtk d a) + (snd $ f 0))
                                                      ,(BoostAtk,expected (batk 1 f))
