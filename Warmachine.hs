@@ -4,6 +4,7 @@
 module Warmachine where
   import Numeric.Probability.Distribution hiding (map,filter)
   import Data.Function.Memoize
+  import Data.List
 
   -- Fixes some type class generality
   myExpected :: (Fractional p, Integral n) => T p n -> p
@@ -36,50 +37,47 @@ module Warmachine where
   basicAtk d a = do h <- attack d
                     if h then damage a else 0
 
-  basicAtkBA :: (Fractional prob, Ord prob) => Int -> Int -> Int -> T prob prob
-  basicAtkBA _ _ 0 = error "Can't boost attack with no resource"
-  basicAtkBA d a 1 = do h <- boostedAtk d
-                        return $ if h then (myExpected $ damage a) else 0
-  basicAtkBA d a r = do h <- boostedAtk d
-                        return $ (memoed d a (r-2)) + if h 
-                                                           then (myExpected $ damage a) 
-                                                           else 0
+  data Action = None | BoostAtk | BoostDmg | BoostBoth deriving (Ord, Eq, Show, Enum)
 
-  basicAtkBD :: (Fractional prob, Ord prob) => Int -> Int -> Int -> T prob prob
-  basicAtkBD _ _ 0 = error "Can't boost damage with no resource"
-  basicAtkBD d a 1 = do h <- attack d
-                        return $ if h then (myExpected $ boostedDmg a) 
-                                      else memoed d a 0
-  basicAtkBD d a r = do h <- attack d
-                        return $ if h 
-                                 then (myExpected $ boostedDmg a) + (memoed d a (r-2))
-                                 else memoed d a (r-1)
+  -- Should be in Prelude :(
+  maximumWRT :: (Ord b) => (a -> b) -> [a] -> a
+  maximumWRT f xs = maximumBy (\x y -> compare (f x) (f y)) xs
 
-  basicAtkBABD :: (Fractional prob, Ord prob) => Int -> Int -> Int -> T prob prob
-  basicAtkBABD _ _ 0 = error "Can't boost atk+dmg with no resource"
-  basicAtkBABD _ _ 1 = error "Can't boost atk+dmg with one resource"
-  basicAtkBABD d a 2 = do h <- boostedAtk d
-                          return $ if h 
-                                   then (myExpected $ boostedDmg a) 
-                                   else memoed d a 0
-  basicAtkBABD d a r = do h <- boostedAtk d
-                          return $ if h 
-                                   then (myExpected $ boostedDmg a) + (memoed d a (r-3))
-                                   else memoed d a (r-2)
-
-  -- Takes def diff, arm diff, resource limit
-  -- If this is too slow investigate dynamic programming
-  -- We assume that we currently have one attack available and are trying
-  -- to optimize the use of our resource
-  maxExpected :: (Fractional p, Ord p) => Int -> Int -> Int -> p
-  maxExpected d a 0 = myExpected $ basicAtk d a
-  maxExpected d a 1 = maximum [(myExpected $ basicAtk d a) + memoed d a 0
-                              ,expected $ basicAtkBA d a 1
-                              ,expected $ basicAtkBD d a 1]
-  maxExpected d a r = maximum [(myExpected $ basicAtk d a) + memoed d a (r-1)
-                              ,expected $ basicAtkBA d a r
-                              ,expected $ basicAtkBD d a r
-                              ,expected $ basicAtkBABD d a r]
-
-  memoed :: (Fractional p, Ord p) => Int -> Int -> Int -> p
-  memoed d a r = memoize (maxExpected d a) r
+  -- This is ugly. I don't know why memoization didn't work on the cleaner version
+  memoed :: (Fractional p, Ord p) => Int -> Int -> Int -> (Action,p)
+  memoed d a = 
+    let f = traceMemoize $ \r -> case r of
+                                 0 -> (None,myExpected $ basicAtk d a)
+                                 1 -> maximumWRT snd [(None,(myExpected $ basicAtk d a) + (snd $ f 0))
+                                                     ,(BoostAtk,expected (batk 1 f))
+                                                     ,(BoostDmg,expected (bdmg 1 f))]
+                                 _ -> maximumWRT snd [(None,(myExpected $ basicAtk d a) + (snd $ f (r-1)))
+                                                     ,(BoostAtk,expected (batk r f))
+                                                     ,(BoostDmg,expected (bdmg r f))
+                                                     ,(BoostBoth,expected (both r f))]
+    in f
+   where batk 0 _ = error "Can't boost attack with no resource"
+         batk 1 _ = do h <- boostedAtk d
+                       return $ if h then (myExpected $ damage a) else 0
+         batk r f = do h <- boostedAtk d
+                       return $ (snd $ f (r-2)) + if h 
+                                            then (myExpected $ damage a) 
+                                            else 0
+         bdmg 0 _ = error "Can't boost damage with no resource"
+         bdmg 1 f = do h <- attack d
+                       return $ if h then (myExpected $ boostedDmg a) 
+                                     else snd $ f 0
+         bdmg r f = do h <- attack d
+                       return $ if h 
+                                then (myExpected $ boostedDmg a) + (snd $ f (r-2))
+                                else snd $ f (r-1)
+         both 0 _ = error "Can't boost atk+dmg with no resource"
+         both 1 _ = error "Can't boost atk+dmg with one resource"
+         both 2 f = do h <- boostedAtk d
+                       return $ if h 
+                                then (myExpected $ boostedDmg a) 
+                                else snd $ f 0
+         both r f = do h <- boostedAtk d
+                       return $ if h 
+                                then (myExpected $ boostedDmg a) + (snd $ f (r-3))
+                                else snd $ f (r-2)

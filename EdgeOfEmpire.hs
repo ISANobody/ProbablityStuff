@@ -69,3 +69,27 @@ module EdgeOfEmpire where
        return $ if s > 0
                 then (s + 10) * (1+ (max a 0))
                 else 0
+  
+  heavlyBlpistol g y u p = do
+       (s,a) <- roll g y u (p+1)
+       return $ if s > 0
+                then (s+7)
+                else 0
+
+  equalizerDmg g y u p = do
+       (s,a) <- roll g y u (p+1)
+       return $ if s > 0
+                then (s+8)
+                else 0
+
+  aspDmg g y u p soak = do
+       (s,a) <- roll g y u (p+1)
+       return $ if s > 0
+                then (s + 4 - soak) * (1+ floor ((max a 0) % 2))
+                else 0
+
+  aspJRDmg g y u p soak = do
+       (s,a) <- roll g y u (p+1)
+       return $ if s > 0
+                then (s + 4 - soak) * (1+ (max a 0))
+                else 0
