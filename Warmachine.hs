@@ -1,14 +1,42 @@
 {-# OPTIONS_GHC -Wall #-}
-{-# LANGUAGE ScopedTypeVariables #-}
+{-# LANGUAGE ScopedTypeVariables, TemplateHaskell #-}
 
 module Warmachine where
   import Numeric.Probability.Distribution hiding (map,filter)
   import Data.Function.Memoize
   import Data.List
 
+  data Weapon = Weapon { pow :: Int }
+  deriveMemoizable ''Weapon
+
+  data Warjack = Warjack { str :: Int
+                         , mat :: Int
+                         , def :: Int
+                         , arm :: Int
+                         , boxes :: Int
+                         , weapon :: Weapon }
+  deriveMemoizable ''Warjack
+
+  leviathan :: Warjack
+  leviathan = Warjack { str = 12
+                      , mat = 6
+                      , def = 12
+                      , arm = 18
+                      , boxes = 30
+                      , weapon = Weapon 5 }
+
+  fib :: Int -> Int
+  fib 0 = 0
+  fib 1 = 1
+  fib n = mfib (n-1) + mfib (n-2)
+  
+  mfib = memoize $ fib
+  
+
   -- Fixes some type class generality
   myExpected :: (Fractional p, Integral n) => T p n -> p
   myExpected = expected . (fmap fromIntegral)
+
 
   -- Underscores because numbers can't start identifiers
   _1d6,_2d6,_3d6 :: (Fractional prob, Ord prob) => T prob Int
