@@ -5,6 +5,7 @@ module Warmachine where
   import Numeric.Probability.Distribution hiding (map,filter)
   import Data.Function.Memoize
   import Data.List
+  import Debug.Trace
 
   data Weapon = Weapon { pow :: Int }
   deriveMemoizable ''Weapon
@@ -24,14 +25,6 @@ module Warmachine where
                       , arm = 18
                       , boxes = 30
                       , weapon = Weapon 5 }
-
-  fib :: Int -> Int
-  fib 0 = 0
-  fib 1 = 1
-  fib n = mfib (n-1) + mfib (n-2)
-  
-  mfib = memoize $ fib
-  
 
   -- Fixes some type class generality
   myExpected :: (Fractional p, Integral n) => T p n -> p
@@ -164,3 +157,60 @@ module Warmachine where
                           return $ if h || ah
                                    then (myExpected $ boostedDmg s) + (snd $ f True (r-3))
                                    else snd $ f ah (r-2)
+
+  -- wider memo tracing function
+  traceMemoize2 :: (Show a, Show b, Memoizable a, Memoizable b) => (a -> b -> c) -> (a -> b -> c)
+  traceMemoize2 f = memoize2 (\a b -> trace (show a ++ " " ++ show b) (f a b))
+  traceMemoize3 :: (Show a, Show b, Show c, Memoizable a, Memoizable b, Memoizable c) 
+     => (a -> b -> c -> d) -> (a -> b -> c -> d)
+  traceMemoize3 f = memoize3 (\a b c -> trace (show a ++ " " ++ show b ++ " " ++ show c) (f a b c))
+  traceMemoize4 :: (Show a, Show b, Show c, Show d,
+                    Memoizable a, Memoizable b, Memoizable c, Memoizable d) 
+     => (a -> b -> c -> d -> e) -> (a -> b -> c -> d -> e)
+  traceMemoize4 f = memoize4 (\a b c d -> trace (show a ++ " " ++ show b
+                                                ++ " " ++ show c ++ " " ++ show d) (f a b c d))
+  traceMemoize5 :: (Show a, Show b, Show c, Show d, Show e,
+                    Memoizable a, Memoizable b, Memoizable c, Memoizable d, Memoizable e) 
+     => (a -> b -> c -> d -> e -> f) -> (a -> b -> c -> d -> e -> f)
+  traceMemoize5 m = memoize5 (\a b c d  e -> 
+                    trace (show a ++ " " ++ 
+                           show b ++ " " ++ 
+                           show c ++ " " ++ 
+                           show d ++ " " ++
+                           show e) 
+                          (m a b c d e))
+
+  fib,mfib :: (Fractional p, Ord p) => Int -> Int -> T p Int
+  mfib = let f = traceMemoize2 $ \n m ->
+               case (n,m) of
+               (0,_) -> certainly 0
+               (_,0) -> certainly 1
+               _ -> do b <- uniform [True, False]
+                       if b 
+                       then norm $ fmap (+1) (f (n-1) m)
+                       else norm $ f n (m-1) 
+         in f
+  fib 0 _ = certainly 0
+  fib _ 0 = certainly 1
+  fib n m = do b <- uniform [True, False]
+               if b 
+               then norm $ fmap (+1) (mfib (n-1) m)
+               else norm $ mfib n (m-1) 
+  
+
+  -- Warning, memory leak or something
+  -- takes relative defense, relative armor, number of transfers, number
+  -- of shots remaining, boxes left, and returns a distribution of the number of boxes left
+  ecaine :: (Fractional p, Ord p) => Int -> Int -> Int -> Int -> Int -> T p Int
+  ecaine = 
+   let f = traceMemoize5 $ \d a t s b -> 
+         case s of
+         0 -> certainly b
+         _ -> do h <- attack d
+                 if h
+                 then do dmg <- damage a
+                         if b - dmg > 0
+                         then norm $ fmap (\x -> max 0 (x-dmg)) (f d (a+1) t (s-1) (b-dmg))
+                         else return 0
+                 else f d a t (s-1) b
+   in f
