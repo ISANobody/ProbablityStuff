@@ -208,7 +208,7 @@ module Warmachine where
          _ -> do h <- attack d
                  if h
                  then do dmg <- damage a
-                         if t > 0 && w b dmg (s-1) t (f d a)
+                         if t > 0 && w b dmg (s-1) t (f d (a+1))
                          then norm $ f d (a+1) (t-1) (s-1) b
                          else if dmg >= b
                               then return True
