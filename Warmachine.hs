@@ -201,16 +201,16 @@ module Warmachine where
   -- Warning, memory leak or something
   -- takes relative defense, relative armor, number of transfers, number
   -- of shots remaining, boxes left, and returns a distribution of the number of boxes left
-  ecaine :: (Fractional p, Ord p) => Int -> Int -> Int -> Int -> Int -> T p Int
+  ecaine :: (Fractional p, Ord p) => Int -> Int -> Int -> Int -> Int -> T p Bool
   ecaine = 
    let f = traceMemoize5 $ \d a t s b -> 
          case s of
-         0 -> certainly b
+         0 -> certainly (b==0)
          _ -> do h <- attack d
                  if h
                  then do dmg <- damage a
-                         if b - dmg > 0
-                         then norm $ fmap (\x -> max 0 (x-dmg)) (f d (a+1) t (s-1) (b-dmg))
-                         else return 0
-                 else f d a t (s-1) b
+                         if dmg > b
+                         then return True
+                         else norm $ f d (a+1) t (s-1) (b-dmg)
+                 else norm $ f d a t (s-1) b
    in f
