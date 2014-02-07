@@ -33,26 +33,26 @@ module Warmachine where
 
   -- Underscores because numbers can't start identifiers
   _1d6,_2d6,_3d6 :: (Fractional prob, Ord prob) => T prob Int
-  _1d6 = uniform [1..6]
-  _2d6 = _1d6 + _1d6
-  _3d6 = _1d6 + _1d6 + _1d6
+  _1d6 = norm $ uniform [1..6]
+  _2d6 = norm $ _1d6 + _1d6
+  _3d6 = norm $ _1d6 + _1d6 + _1d6
 
   -- Takes in the difference
   attack :: (Fractional prob, Ord prob) => Int -> T prob Bool
-  attack n = do r <- _2d6
-                return $ r+n > 0
+  attack n = norm $ do r <- _2d6
+                       return $ r+n > 0
 
   boostedAtk :: (Fractional prob, Ord prob) => Int -> T prob Bool
-  boostedAtk n = do r <- _3d6
-                    return $ r+n > 0
+  boostedAtk n = norm $ do r <- _3d6
+                           return $ r+n > 0
 
   damage :: (Fractional prob, Ord prob) => Int -> T prob Int
-  damage n = do r <- _2d6
-                return $ max (r+n) 0
+  damage n = norm $ do r <- _2d6
+                       return $ max (r+n) 0
 
   boostedDmg :: (Fractional prob, Ord prob) => Int -> T prob Int
-  boostedDmg n = do r <- _3d6
-                    return $ max (r+n) 0
+  boostedDmg n = norm $ do r <- _3d6
+                           return $ max (r+n) 0
 
   data Action = None | BoostAtk | BoostDmg | BoostBoth
               | HeadButt | HeadBAtk | HeadBDmg | HeadBoth
@@ -202,7 +202,7 @@ module Warmachine where
   -- of shots remaining, boxes left, and returns a distribution of the number of boxes left
   ecaine :: (Fractional p, Ord p) => TransferStrat p -> Int -> Int -> Int -> Int -> Int -> T p Bool
   ecaine w = 
-   let f = traceMemoize5 $ \d a t s b -> 
+   let f = memoize5 $ \d a t s b -> 
          case s of
          0 -> certainly (b<=0)
          _ -> do h <- attack d
