@@ -180,37 +180,38 @@ module Warmachine where
                            show e) 
                           (m a b c d e))
 
-  fib,mfib :: (Fractional p, Ord p) => Int -> Int -> T p Int
-  mfib = let f = traceMemoize2 $ \n m ->
-               case (n,m) of
-               (0,_) -> certainly 0
-               (_,0) -> certainly 1
-               _ -> do b <- uniform [True, False]
-                       if b 
-                       then norm $ fmap (+1) (f (n-1) m)
-                       else norm $ f n (m-1) 
-         in f
-  fib 0 _ = certainly 0
-  fib _ 0 = certainly 1
-  fib n m = do b <- uniform [True, False]
-               if b 
-               then norm $ fmap (+1) (mfib (n-1) m)
-               else norm $ mfib n (m-1) 
-  
+  --  A wound transfer strategy for dealing with ecaine takes 
+  -- boxes left, dmg from the current hit, shots remaining, num of transfers
+  -- and function for the probability of success, returns whether to transfer
+  -- I wonder if we should allow for randomized strategy
+  type TransferStrat p = Int -> Int -> Int -> Int -> 
+       (Int -> Int -> Int -> T p Bool)
+       -> Bool
 
-  -- Warning, memory leak or something
-  -- takes relative defense, relative armor, number of transfers, number
+  alwaysTransfer,neverTransfer,avoidDeath :: TransferStrat p
+  neverTransfer _ _ _ _ _ = False
+  alwaysTransfer _ _ _ 0 _ = False
+  alwaysTransfer _ _ _ _ _ = True
+  avoidDeath b dmg _ _ _ = dmg >= b
+
+  minExpectedTransfer :: (Fractional p, Ord p) => TransferStrat p
+  minExpectedTransfer b dmg s t f = (id ?? f t s (max 0 (b-dmg))) > (id ?? f (t-1) s b)
+
+
+  -- takes a transfer strategy, relative defense, relative armor, number of transfers, number
   -- of shots remaining, boxes left, and returns a distribution of the number of boxes left
-  ecaine :: (Fractional p, Ord p) => Int -> Int -> Int -> Int -> Int -> T p Bool
-  ecaine = 
+  ecaine :: (Fractional p, Ord p) => TransferStrat p -> Int -> Int -> Int -> Int -> Int -> T p Bool
+  ecaine w = 
    let f = traceMemoize5 $ \d a t s b -> 
          case s of
-         0 -> certainly (b==0)
+         0 -> certainly (b<=0)
          _ -> do h <- attack d
                  if h
                  then do dmg <- damage a
-                         if dmg > b
-                         then return True
-                         else norm $ f d (a+1) t (s-1) (b-dmg)
+                         if t > 0 && w b dmg (s-1) t (f d a)
+                         then norm $ f d (a+1) (t-1) (s-1) b
+                         else if dmg >= b
+                              then return True
+                              else norm $ f d (a+1) t (s-1) (b-dmg)
                  else norm $ f d a t (s-1) b
    in f
