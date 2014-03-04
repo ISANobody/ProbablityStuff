@@ -6,6 +6,8 @@ module Warmachine where
   import Data.Function.Memoize
   import Data.List
   import Debug.Trace
+  import qualified Data.MultiSet as MS
+  import Data.MultiSet (MultiSet)
 
   data Weapon = Weapon { pow :: Int }
   deriveMemoizable ''Weapon
@@ -215,3 +217,76 @@ module Warmachine where
                               else norm $ f d (a+1) t (s-1) (b-dmg)
                  else norm $ f d a t (s-1) b
    in f
+
+  -- Target Sum, Largest summand
+  intPartition :: Int -> [[Int]]
+  intPartition i = go i i
+    where go :: Int -> Int -> [[Int]]
+          go 0 _ = [[]]
+          go 1 _ = [[1]]
+          go n m = do x <- [1..(min m n)]
+                      xs <- go (n-x) x
+                      return $ x:xs
+
+  intPartitionMS :: Int -> [MultiSet Int]
+  intPartitionMS i = go i i
+    where go :: Int -> Int -> [MultiSet Int]
+          go 0 _ = [MS.empty]
+          go 1 _ = [MS.singleton 1]
+          go n m = do x <- [1..(min m n)]
+                      xs <- go (n-x) x
+                      return $ MS.insert x xs
+
+  -- Avoid recomputation of the measure
+  -- Fails on empty lists
+  maxWRTMemo :: forall a b. Ord b => (a -> b) -> [a] -> a
+  maxWRTMemo _ [] = undefined
+  maxWRTMemo _ [x] = x
+  maxWRTMemo f (x:xs) = go (f x) x xs
+    where go :: b -> a -> [a] -> a
+          go _ e [] = e
+          go m e (y:ys) = let m' = f y
+                          in if m' > m
+                             then go m' y ys
+                             else go m e ys
+
+  craPosition :: (Fractional p, Ord p) => Int -> Int -> [Int] -> T p Int
+  craPosition _ _ [] = certainly 0
+  craPosition d a (1:ns) = do h <- attack d
+                              if h
+                              then damage a + craPosition d a ns
+                              else craPosition d a ns
+  craPosition d a (n:ns) = do h <- attack (d+n)
+                              if h
+                              then damage (a+n) + craPosition d a ns
+                              else craPosition d a ns
+
+  craPositionEx :: Int -> Int -> [Int] -> Double
+  craPositionEx _ _ [] = 0
+  craPositionEx d a (1:ns) = expected $ do h <- attack d
+                                           if h
+                                           then return $ (myExpected $ damage a) + craPositionEx d a ns
+                                           else return $ craPositionEx d a ns
+  craPositionEx d a (n:ns) = expected $ do h <- attack (d+n)
+                                           if h
+                                           then return $ (myExpected $ damage (a+n)) + craPositionEx d a ns
+                                           else return $ craPositionEx d a ns
+
+  -- Use linearity of expectation
+  craPosMSEx :: Int -> Int -> MultiSet Int -> Double
+  craPosMSEx d a ms = MS.foldOccur go 0 ms
+    where go :: Int -> Int -> Double -> Double
+          go 1 o acc = acc + (fromIntegral o)  
+                             * (expected $ do h <- attack d
+                                              if h
+                                              then return . myExpected . damage $ a
+                                              else return 0)
+          go n o acc = acc + (fromIntegral o)  
+                             * (expected $ do h <- attack $ d+n
+                                              if h
+                                              then return . myExpected . damage $ a+n
+                                              else return 0)
+
+  -- CRA takes def diff, armor diff, and number of models, returns damage distribution
+  cra :: Int -> Int -> Int -> MultiSet Int
+  cra d a s = maxWRTMemo (craPosMSEx d a) (intPartitionMS s)
