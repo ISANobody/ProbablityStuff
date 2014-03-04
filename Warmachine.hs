@@ -40,11 +40,11 @@ module Warmachine where
   -- Takes in the difference
   attack :: (Fractional prob, Ord prob) => Int -> T prob Bool
   attack n = norm $ do r <- _2d6
-                       return $ r+n > 0
+                       return $ (r /= 2) && (r+n > 0 || r == 12)
 
   boostedAtk :: (Fractional prob, Ord prob) => Int -> T prob Bool
   boostedAtk n = norm $ do r <- _3d6
-                           return $ r+n > 0
+                           return $ (r /= 3) && (r+n > 0 || r == 18)
 
   damage :: (Fractional prob, Ord prob) => Int -> T prob Int
   damage n = norm $ do r <- _2d6
