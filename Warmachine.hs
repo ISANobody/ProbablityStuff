@@ -3,6 +3,7 @@
 
 module Warmachine where
   import Numeric.Probability.Distribution hiding (map,filter)
+  import MathHammer hiding (roll,_3d6)
   import Data.Function.Memoize
   import Data.List
   import Debug.Trace
@@ -290,3 +291,38 @@ module Warmachine where
   -- CRA takes def diff, armor diff, and number of models, returns damage distribution
   cra :: Int -> Int -> Int -> MultiSet Int
   cra d a s = maxWRTMemo (craPosMSEx d a) (intPartitionMS s)
+
+  expectedDMGMS :: (Fractional p, Ord p) => T p (MultiSet Int) -> p
+  expectedDMGMS = expected . fmap (MS.foldOccur (\i o a -> fromIntegral (i*o) + a) 0)
+
+  expectedOneBoxed :: (Fractional p, Ord p) => T p (MultiSet Int) -> p
+  expectedOneBoxed = myExpected . fmap (MS.size . MS.filter (>0))
+
+  -- def, arm, returns distribution over damage assuming no aim
+  fullCharger :: (Fractional p, Ord p) => Int -> Int -> T p (MultiSet Int)
+  fullCharger d a = do h1 <- boostedAtk (6-d)
+                       h2 <- boostedAtk (6-d)
+                       d1 <- boostedDmg (12-a)
+                       d2 <- boostedDmg (12-a)
+                       return $ MS.insert (if h1 then d1 else 0) (MS.singleton $ if h2 then d2 else 0)
+
+  fullSent :: forall p. (Fractional p, Ord p) => Int -> Int -> T p (MultiSet Int)
+  fullSent d a = do s <- uniform [1..6]
+                    go s 3
+     where go :: Int -> Int -> T p (MultiSet Int)
+           go = let rec = memoize2 $ \s f -> case (s,f) of
+                          (_,0) -> norm $ independentRepFold MS.union (\x n -> MS.insertMany x n MS.empty) s 
+                                                             (damage (10-a))
+                          (1,1) -> do h <- attack (6-d)
+                                      p <- boostedDmg (10-a)
+                                      return . MS.singleton $ if h then p else 0
+                          (1,_) -> do h <- boostedAtk (6-d)
+                                      p <- boostedDmg (10-a)
+                                      return . MS.singleton $ if h then p else 0
+                          (_,_) -> do h <- attack (6-d)
+                                      if h
+                                      then do pr <- rec (s-1) (f-1)
+                                              p  <- boostedDmg (10-a)
+                                              return $ MS.insert p pr
+                                      else rec (s-1) (f-1)
+                in rec
