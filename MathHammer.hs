@@ -7,8 +7,6 @@ module MathHammer where
   import qualified Data.MultiSet as MS
   import Data.MultiSet (MultiSet)
   import Data.Ratio
-  import qualified Data.Map as Map
-  import Data.Map (Map)
   import Util
 
   type Frac = Ratio Integer
@@ -57,9 +55,48 @@ module MathHammer where
                      -> Int -> T prob a -> T prob b
   independentRepFold c r = independentGen (foldr1 c . map (\(e,o) -> r o e))
 
+  -- N trials with replacement
   independent :: (Fractional prob, Ord a) 
               => Int -> T prob a -> T prob (MultiSet a)
   independent = independentRepFold MS.union msPolyton
+
+
+  -- N trials without replacement
+  -- If you need a reference look for multivariate hypergeometric distributions
+
+  -- First calculate the possible outcomes (c.f. fixedSumCombos)
+  -- The big difference is that each element has a maximum number of times it can
+  -- occur. It probably isn't dangerous for there to be repeats in the input map.
+  -- Efficiency guess: this should use Map a Int for its result, or at least use
+  -- groupBy somewhere if you want only the Eq typeclass constraint
+  combosWO :: [Int]       -- Usage caps for each element
+           -> Int         -- Selection Size
+           -> [[Int]]     -- Resulting outcomes
+  combosWO caps   0 = [map (const 0) caps]
+  combosWO []     _ = []
+  combosWO (c:cs) k = do x <- [0..min c k]
+                         r <- combosWO cs (k-x)
+                         return (x:r)
+
+  -- As above but take in multisets for capac
+  combosWOMS :: (Ord a)
+             => MultiSet a   -- Population
+             -> Int          -- Selection Size
+             -> [MultiSet a] -- List of possible selections
+  combosWOMS ms k = map go (combosWO (map snd asc) k)
+    where asc = MS.toAscOccurList ms
+          go  = MS.fromAscOccurList . zipWith (\(a,_) c -> (a,c)) asc
+
+  -- Multivariate Hypergeometric Distribution
+  hypergeometric :: (Fractional prob, Ord a) 
+                 => MultiSet a          -- Starting population
+                 -> Int                 -- Selection Size
+                 -> T prob (MultiSet a) -- Result distribution
+  hypergeometric pop k = fromFreqs $ map go (combosWOMS pop k)
+     where go o = (o,(MS.foldOccur (\a c acc -> acc * (binom (MS.occur a pop) c)) 1 o)
+                     / (binom (MS.size pop) k))
+                 
+
 
   -- Remove Nothing from a Multiset Maybe a, then rm the wrapper
   stripMaybe :: (Ord a) => MultiSet (Maybe a) -> MultiSet a
