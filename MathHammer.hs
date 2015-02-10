@@ -60,6 +60,13 @@ module MathHammer where
               => Int -> T prob a -> T prob (MultiSet a)
   independent = independentRepFold MS.union msPolyton
 
+  -- N trials with replacement each subtrial can produce a multiset too
+  independentUnion :: forall prob a. (Fractional prob, Ord a) 
+              => Int -> T prob (MultiSet a) -> T prob (MultiSet a)
+  independentUnion = independentRepFold MS.union go
+    where go :: Int -> MultiSet a -> MultiSet a
+          go n = MS.fromMap . fmap (n*) . MS.toMap
+
 
   -- N trials without replacement
   -- If you need a reference look for multivariate hypergeometric distributions
@@ -106,185 +113,142 @@ module MathHammer where
   foldrM _ b []     = return b
   foldrM f b (x:xs) = do rs <- foldrM f b xs
                          f x rs
-                         
 
-  d6 :: (Fractional prob) => T prob Int
-  d6 = uniform [1..6]
+  nonZeroOccur :: (Ord a) => a -> MultiSet a -> Bool
+  nonZeroOccur a m = MS.occur a m > 0
 
-  d3 :: (Fractional prob) => T prob Int
-  d3 = uniform [1..3]
+  data Color = U | B | G | R | W | C deriving (Eq,Show,Ord,Enum)
+  data Card = Spell (MultiSet Color)
+            | BasicLand Color
+            | PainLand Color Color
+            | FetchLand Color Color
+            | TriLand Color Color Color
+     deriving (Eq,Show,Ord)
 
-  _3d6 :: (Fractional prob) => T prob (MultiSet Int)
-  _3d6 = norm $ do r1 <- d6
-                   r2 <- d6
-                   r3 <- d6
-                   return . MS.insert r1 . MS.insert r2 $ MS.singleton r3
 
-  msSum :: (Num n) => (MultiSet n) -> n
-  msSum = MS.fold (+) 0
+  -- Entries for Carl's Cards
+  -- Lands
+  battlefieldForge, bloodstainedMire, cavesOfKoilos, mountain, nomadOutpost :: Card
+  plains, pollutedDelta, swamp, urborgTombOfYawgmoth, windsweptHeath :: Card
 
-  d6rending :: (Fractional prob) => T prob Int
-  d6rending = do
-        x <- uniform [1..6]
-        if x == 6
-        then uniform [7..9]
-        else return x
+  battlefieldForge     = PainLand R W
+  windsweptHeath       = FetchLand W G
+  urborgTombOfYawgmoth = BasicLand B -- Wrong
+  swamp                = BasicLand B
+  pollutedDelta        = FetchLand U B
+  plains               = BasicLand W
+  mountain             = BasicLand R
+  nomadOutpost         = TriLand R W B
+  cavesOfKoilos        = PainLand W B
+  bloodstainedMire     = FetchLand R B
 
-  data AP = AP1 | AP2 | AP3 | AP4 | AP5 | AP6 | APDash deriving (Eq, Show, Ord)
-  data SV = SV2 | SV3 | SV4 | SV5 | SV6 | SVDash deriving (Eq, Show, Ord)
 
-  svToRoll :: SV -> Roll
-  svToRoll SV2 = D2Plus
-  svToRoll SV3 = D3Plus
-  svToRoll SV4 = D4Plus
-  svToRoll SV5 = D5Plus
-  svToRoll SV6 = D6Plus
-  svToRoll SVDash = Never
+  -- Creatures
+  athreosGodOfPassage, bloodsoakedChampion, butcherOfTheHorde, chiefOfTheEdge :: Card
+  tormentedHero, goblinRabblemaster, purphorosGodOfTheForge, soldierOfThePantheon :: Card
+  tymaretTheMurderKing :: Card
 
-  negates :: AP -> SV -> Bool
-  negates APDash _   = False
-  negates AP1    _   = True
-  negates AP2    _   = True
-  negates AP3    SV2 = False
-  negates AP3    _   = True
-  negates AP4    SV2 = False
-  negates AP4    SV3 = False
-  negates AP4    _   = True
-  negates AP5    SV2 = False
-  negates AP5    SV3 = False
-  negates AP5    SV4 = False
-  negates AP5    _   = True
-  negates AP6    SV2 = False
-  negates AP6    SV3 = False
-  negates AP6    SV4 = False
-  negates AP6    SV5 = False
-  negates AP6    _   = True
+  athreosGodOfPassage    = Spell (MS.fromList [C,W,B])
+  bloodsoakedChampion    = Spell (MS.singleton B)
+  butcherOfTheHorde      = Spell (MS.fromList [C,R,W,B])
+  chiefOfTheEdge         = Spell (MS.fromList [W,B])
+  tormentedHero          = Spell (MS.singleton B)
+  goblinRabblemaster     = Spell (MS.fromList [C,C,R])
+  purphorosGodOfTheForge = Spell (MS.fromList [C,C,C,R])
+  soldierOfThePantheon   = Spell (MS.singleton W)
+  tymaretTheMurderKing   = Spell (MS.fromList [W,B])
 
-  data ShootingProfile = Heavy Int 
-                       | Assault Int 
-                       | RapidFire
-                       | Ordinance 
-                       | Multi [ShootingProfile] deriving (Show, Eq, Ord)
+  deck :: MultiSet Card
+  deck = MS.fromList . concat $
+         [replicate 2 battlefieldForge
+         ,replicate 4 bloodstainedMire
+         ,replicate 3 cavesOfKoilos
+         ,replicate 3 mountain
+         ,replicate 2 nomadOutpost
+         ,replicate 2 plains
+         ,replicate 1 pollutedDelta
+         ,replicate 4 swamp
+         ,replicate 1 urborgTombOfYawgmoth
+         ,replicate 1 windsweptHeath
+         ,replicate 2 athreosGodOfPassage
+         ,replicate 4 bloodsoakedChampion
+         ,replicate 2 butcherOfTheHorde
+         ,replicate 4 chiefOfTheEdge
+         ,replicate 4 tormentedHero
+         ,replicate 4 goblinRabblemaster
+         ,replicate 2 purphorosGodOfTheForge
+         ,replicate 4 soldierOfThePantheon
+         ,replicate 2 tymaretTheMurderKing]
 
-  data AV = AV10 | AV11 | AV12 | AV13 | AV14 deriving (Eq, Show, Ord, Enum)
-  data CrewStatus = CrewFine | CrewShaken | CrewStunned
-       deriving (Show, Eq, Ord)
-  data VehicleDamage = VehicleDamage { crew :: CrewStatus, 
-                                       weaponsDestroyed :: Int, 
-                                       immobilized :: Bool, 
-                                       hullLost :: Int }
-                     | Wrecked
-                     | Explodes
-       deriving (Show, Eq, Ord)
-  undamaged :: VehicleDamage
-  undamaged = VehicleDamage { crew = CrewFine, 
-                              weaponsDestroyed = 0,
-                              immobilized = False, 
-                              hullLost = 0 }
-  killed :: VehicleDamage -> Bool
-  killed Wrecked = True
-  killed Explodes = True
-  killed _ = False
-  
-  -- Note BS6+ needs to be handled specially
-  data Strength = STR0 | STR1 | STR2 | STR3 | STR4 | STR5 | STR6 | STR7 | STR8 | STR9 | STR10 
-       deriving (Eq, Show, Ord, Enum)
+  -- Since fetch lands can make this tricky we just track all the possibilities
+  availableMana :: MultiSet Card -> [MultiSet Color]
+  availableMana = MS.fold go [MS.empty]
+    where go = undefined
 
-  data Toughness = T0 | T1 | T2 | T3 | T4 | T5 | T6 | T7 | T8 | T9 | T10
-       deriving (Eq, Show, Ord, Enum)
+  main :: IO ()
+  main = print $ ((any (\m -> nonZeroOccur B m)) ?? (fmap availableMana (hypergeometric deck 1)) :: Double)
 
-  data BS = BS0 | BS1 | BS2 | BS3 | BS4 | BS5 deriving (Eq, Show, Ord, Enum)
+{-
+//Lands
+2 Battlefield Forge
+4 Bloodstained Mire
+3 Caves of Koilos
+3 Mountain
+2 Nomad Outpost
+2 Plains
+1 Polluted Delta
+4 Swamp
+1 Urborg, Tomb of Yawgmoth
+1 Windswept Heath
 
-  data WS = WS0 | WS1 | WS2 | WS3 | WS4 | WS5 deriving (Eq, Show, Ord, Enum)
 
-  data Roll = Always | D2Plus | D3Plus | D4Plus | D5Plus | D6Plus | Never deriving (Show, Eq)
-  instance Enum Roll where
-     fromEnum Always = 1
-     fromEnum D2Plus = 2
-     fromEnum D3Plus = 3
-     fromEnum D4Plus = 4
-     fromEnum D5Plus = 5
-     fromEnum D6Plus = 6
-     fromEnum Never  = 7
-     toEnum 1 = Always
-     toEnum 2 = D2Plus
-     toEnum 3 = D3Plus
-     toEnum 4 = D4Plus
-     toEnum 5 = D5Plus
-     toEnum 6 = D6Plus
-     toEnum 7 = Never
-     toEnum _ = error "Roll out of range"
+//Spells
+2 Crackling Doom
+1 Hero's Downfall
+1 Mardu Ascendancy
+3 Mardu Charm
+2 Ride Down
 
-  roll :: (Fractional prob) => Roll -> T prob Bool
-  roll r = D.map (\ x -> x >= fromEnum r) d6
+//Creatures
+2 Athreos, God of Passage
+4 Bloodsoaked Champion
+2 Butcher of the Horde
+4 Chief of the Edge
+4 Tormented Hero
+4 Goblin Rabblemaster - need 1 to replace phials loan
+2 Purphoros, God of the Forge
+4 Soldier of the Pantheon
+2 Tymaret, the Murder King
 
-  -- I hate twinlinked.
-  -- Take a twinlinked flag
-  bs2prob :: (Fractional prob) => BS -> Bool -> T prob Bool
-  bs2prob bs tl = norm $ do r <- d6
-                            if r >= (7 - fromEnum bs)
-                            then return True
-                            else if tl
-                                 then bs2prob bs False
-                                 else return False
 
-  -- Takes a BS, number of shots, and Twin-linked Flag. Returns the number of hits
-  numhits :: (Fractional prob) => BS -> Int -> Bool -> T prob Int
-  numhits b n tl = norm $ D.map (MS.occur True) $ norm $ independent n (bs2prob b tl)
+Deckstats version
+//Lands
+2 Battlefield Forge
+4 Bloodstained Mire
+3 Caves of Koilos
+3 Mountain
+2 Nomad Outpost
+2 Plains
+1 Polluted Delta
+4 Swamp
+1 Urborg, Tomb of Yawgmoth
+1 Windswept Heath
 
-  data PenResult = Failure | Glance | Pen deriving (Show, Eq, Ord, Enum)
+//Spells
+2 Crackling Doom
+1 Hero's Downfall
+1 Mardu Ascendancy
+3 Mardu Charm
+2 Ride Down
 
-  hit2pen :: (Fractional prob) => Strength -> AV -> T prob PenResult
-  hit2pen s a = norm $ do r <- d6
-                          return (case () of _ | r + str > av  -> Pen
-                                               | r + str == av -> Glance
-                                               | otherwise     -> Failure)
-    where str = fromEnum s
-          av  = 10 + fromEnum a
-
-  pendmg :: (Fractional prob) => T prob Int
-  pendmg = norm $ uniform [1,1,1,1,2,3]
-
-  quadshooting :: (Fractional prob) => BS -> T prob Bool
-  quadshooting bs = do h <- numhits bs 4 True
-                       r <- independent h (norm $ hit2pen STR7 AV10)
-                       d <- independent (MS.occur Pen r) pendmg
-                       return $ MS.occur Glance r + msSum d >= 3
-
-  crimsonHit :: (Fractional prob) => AV -> T prob PenResult
-  crimsonHit av = norm $ do r <- d6
-                            case () of 
-                             _ | r+8 == 10 + fromEnum av -> return Glance
-                               | r+8 > 10 + fromEnum av  -> return Pen
-                               | otherwise -> hit2pen STR8 av
-
-  ap2VSFlyerDmg :: (Fractional prob) => Int -> T prob Int
-  ap2VSFlyerDmg hp = norm $ uniform [1,1,1,2,hp,hp]
-
-  crimsonVSturkey :: (Ord prob, Fractional prob) => T prob Bool
-  crimsonVSturkey = do h <- numhits BS5 4 False
-                       h'<- fmap (MS.occur True) $ independent h (fmap (<5) d6)
-                       r <- independent h' (crimsonHit AV12)
-                       d <- independent (MS.occur Pen r) (ap2VSFlyerDmg 3)
-                       return $ MS.occur Glance r + msSum d >= 3
-
-  vendettaVSturkey :: (Fractional prob) => T prob Bool
-  vendettaVSturkey = do h <- numhits BS3 3 True
-                        h'<- fmap (MS.occur True) $ independent h (fmap (<5) d6)
-                        r <- independent h' (hit2pen STR9 AV12)
-                        d <- independent (MS.occur Pen r) (ap2VSFlyerDmg 3)
-                        return $ MS.occur Glance r + msSum d >= 3
-
-  quadgunVSturkey :: (Fractional prob) => T prob Bool
-  quadgunVSturkey = do h <- numhits BS4 4 True
-                       h'<- fmap (MS.occur True) $ independent h (fmap (<5) d6)
-                       r <- independent h' (hit2pen STR7 AV12)
-                       d <- independent (MS.occur Pen r) pendmg
-                       return $ MS.occur Glance r + msSum d >= 3
-
-  lootasVSturkey :: (Fractional prob) => T prob Bool
-  lootasVSturkey = do h <- norm $ numhits BS1 20 False
-                      h'<- fmap (MS.occur True) $ norm $ independent h (fmap (<5) d6)
-                      r <- independent h' (hit2pen STR7 AV12)
-                      d <- independent (MS.occur Pen r) pendmg
-                      return $ MS.occur Glance r + msSum d >= 3
+//Creatures
+2 Athreos, God of Passage
+4 Bloodsoaked Champion
+2 Butcher of the Horde
+4 Chief of the Edge
+4 Goblin Rabblemaster
+2 Purphoros, God of the Forge
+4 Soldier of the Pantheon
+4 Tormented Hero
+2 Tymaret, the Murder King
+-}
