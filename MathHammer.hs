@@ -36,6 +36,12 @@ module MathHammer where
   msFoldOccurM :: (Ord a, Monad m) => (a -> MS.Occur -> b -> m b) -> b -> MultiSet a -> m b
   msFoldOccurM f z ms = foldrM (uncurry f) z (MS.toOccurList ms)
 
+  -- Split a MultiSet into two
+  mssplits :: (Ord a) => MultiSet a -> [(MultiSet a,MultiSet a)]
+  mssplits = msFoldOccurM go (MS.empty,MS.empty)
+    where go x o (l,r) = do n <- [0..o]
+                            return (MS.insertMany x n l,MS.insertMany x (o-n) r)
+
   -- Repeated independent trials can be handled specially
   -- An individual outcome [x1,x2,...,xn] will occur with
   -- probability the multinomial times each of the 
